@@ -145,10 +145,26 @@ def show_assets_modal(cur, conn):
     
     with tab3:
         st.markdown("#### Liabilities & Credits")
-        st.info("💡 Edit credit amounts and mortgage here. These are tracked as Fixed Expenses.")
+        st.info("💡 Add credits and liabilities as negative assets in the 'Add Asset' tab. Monthly payments are tracked in 'Fixed Expenses'.")
         
-        # Show credit/liability summary with edit capability
+        # Show credits/liabilities from assets table (negative values)
         try:
+            cur.execute("""
+                SELECT 
+                    id,
+                    name,
+                    value,
+                    type,
+                    description,
+                    date
+                FROM assets
+                WHERE user_id = %s 
+                AND value < 0
+                ORDER BY name, date DESC
+            """, (st.session_state.user_id,))
+            liabilities = cur.fetchall()
+            
+            # Also show monthly credit payments from fixed expenses
             cur.execute("""
                 SELECT 
                     id,
@@ -159,10 +175,10 @@ def show_assets_modal(cur, conn):
                     category_id
                 FROM fixed_expenses
                 WHERE user_id = %s 
-                AND (name LIKE '%%Credit%%' OR name LIKE '%%Mortgage%%' OR name LIKE '%%Second Credit%%')
+                AND (name LIKE '%%Mortgage%%' OR name LIKE '%%Second Credit%%')
                 ORDER BY name, month_year DESC
             """, (st.session_state.user_id,))
-            liabilities = cur.fetchall()
+            monthly_credits = cur.fetchall()
             
             if liabilities or monthly_credits:
                 # Show total outstanding from assets (negative values)
