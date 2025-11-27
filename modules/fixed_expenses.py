@@ -142,8 +142,8 @@ def show_fixed_expenses_modal(cur, conn):
             # Display expenses with checkbox list and payment forms
             st.markdown("#### Fixed Liabilities - Check when paid")
             
-            # Create a form for all expenses
-            with st.form("fixed_expenses_payment_form", clear_on_submit=False):
+            # Create a form for all expenses - clear on submit to prevent rerun loops
+            with st.form("fixed_expenses_payment_form", clear_on_submit=True):
                 # Header row
                 col_h1, col_h2, col_h3, col_h4, col_h5, col_h6 = st.columns([1, 2, 2, 2, 2, 2])
                 with col_h1:
