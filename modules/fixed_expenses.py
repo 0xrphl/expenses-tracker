@@ -240,17 +240,14 @@ def show_fixed_expenses_modal(cur, conn):
                             wallet_key = f"wal_{exp_id}"
                             date_key = f"date_{exp_id}"
                             
-                            # Get current values from session state
-                            is_paid = bool(st.session_state.get(checkbox_key, expense['is_paid']))
-                            paid_amount = float(st.session_state.get(amount_key, expense['amount']))
+                            # Get current values from session state - ensure boolean conversion
+                            is_paid = bool(st.session_state.get(checkbox_key, bool(expense['is_paid'])))
+                            paid_amount = float(st.session_state.get(amount_key, float(expense['amount'])))
                             wallet_source = st.session_state.get(wallet_key, "Rafael")
                             payment_date = st.session_state.get(date_key, date.today())
                             
                             # Get original status from database (convert to bool)
                             was_paid = bool(original_expenses[exp_id]['is_paid'])
-                            
-                            # Debug: show what we're comparing
-                            st.write(f"DEBUG: {expense['name']} - was_paid: {was_paid}, is_paid: {is_paid}, checkbox_key: {checkbox_key}")
                             
                             # Always update the database with current checkbox state
                             cur.execute("""
@@ -316,7 +313,7 @@ def show_fixed_expenses_modal(cur, conn):
                         if msg_parts:
                             st.success(f"✅ Saved! {' | '.join(msg_parts)}")
                         else:
-                            st.warning("⚠️ No changes detected. Check if checkboxes are being updated.")
+                            st.info("ℹ️ Status saved. No expenses added/removed.")
                         
                         st.rerun()
                     except Exception as e:
