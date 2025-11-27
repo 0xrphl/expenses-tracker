@@ -106,7 +106,9 @@ def show_fixed_expenses_modal(cur, conn):
             SELECT fe.*, ec.name as category_name
             FROM fixed_expenses fe
             LEFT JOIN expense_categories ec ON fe.category_id = ec.id
-            WHERE fe.user_id = %s AND fe.month_year = %s
+            WHERE fe.user_id = %s 
+            AND fe.month_year = %s
+            AND fe.name NOT IN ('Credit 1', 'Credit 2')
             ORDER BY fe.name
         """, (st.session_state.user_id, st.session_state.selected_month_fixed))
         fixed_expenses = cur.fetchall()
@@ -177,7 +179,7 @@ def show_fixed_expenses_modal(cur, conn):
                         
                         # Checkbox - use session state value (which is synced with DB)
                         is_paid = st.checkbox(
-                            "",
+                            "Paid",
                             value=st.session_state[checkbox_key],
                             key=checkbox_key,
                             label_visibility="collapsed"
@@ -189,7 +191,7 @@ def show_fixed_expenses_modal(cur, conn):
                     with col3:
                         # Editable amount - use database value
                         paid_amount = st.number_input(
-                            "Amount",
+                            "Amount (USD)",
                             min_value=0.01,
                             step=0.01,
                             format="%.2f",
@@ -201,7 +203,7 @@ def show_fixed_expenses_modal(cur, conn):
                     with col4:
                         # Wallet selection - default to Rafael
                         wallet_source = st.selectbox(
-                            "Wallet",
+                            "Payment Source",
                             ["Rafael", "Jessica"],
                             key=f"wal_{expense['id']}",
                             label_visibility="collapsed"
@@ -210,7 +212,7 @@ def show_fixed_expenses_modal(cur, conn):
                     with col5:
                         # Payment date - default to today
                         payment_date = st.date_input(
-                            "Date",
+                            "Payment Date",
                             value=date.today(),
                             key=f"date_{expense['id']}",
                             label_visibility="collapsed"
@@ -239,7 +241,7 @@ def show_fixed_expenses_modal(cur, conn):
                             wallet_key = f"wal_{exp_id}"
                             date_key = f"date_{exp_id}"
                             
-                            # Get current values from session state
+                            # Get current values from session state - these are updated by the form widgets
                             is_paid = st.session_state.get(checkbox_key, expense['is_paid'])
                             paid_amount = st.session_state.get(amount_key, float(expense['amount']))
                             wallet_source = st.session_state.get(wallet_key, "Rafael")
@@ -248,8 +250,19 @@ def show_fixed_expenses_modal(cur, conn):
                             # Get original status from database
                             was_paid = original_expenses[exp_id]['is_paid']
                             
-                            # Only update if status changed
-                            if is_paid != was_paid:
+                            # Always update the database with current form values (even if unchanged)
+                            # This ensures the database reflects the current state
+                            cur.execute("""
+                                UPDATE fixed_expenses 
+                                SET is_paid = %s 
+                                WHERE id = %s
+                            """, (is_paid, exp_id))
+                            
+                            # Track if status changed for expense addition/removal
+                            status_changed = (is_paid != was_paid)
+                            
+                            # If marked as paid and wasn't paid before, add to expenses
+                            if is_paid and not was_paid:
                                 # Update fixed expense status
                                 cur.execute("""
                                     UPDATE fixed_expenses 
@@ -285,19 +298,23 @@ def show_fixed_expenses_modal(cur, conn):
                                         ))
                                         expenses_added.append(expense['name'])
                                         updates_made = True
-                                # If unmarked as paid and was paid before, remove from expenses
-                                elif not is_paid and was_paid:
-                                    cur.execute("""
-                                        DELETE FROM expenses
-                                        WHERE user_id = %s 
-                                        AND description = %s
-                                        LIMIT 1
-                                    """, (
-                                        st.session_state.user_id,
-                                        f"Fixed Expense: {expense['name']} ({st.session_state.selected_month_fixed})"
-                                    ))
-                                    expenses_removed.append(expense['name'])
-                                    updates_made = True
+                            # If unmarked as paid and was paid before, remove from expenses
+                            elif not is_paid and was_paid:
+                                cur.execute("""
+                                    DELETE FROM expenses
+                                    WHERE user_id = %s 
+                                    AND description = %s
+                                    LIMIT 1
+                                """, (
+                                    st.session_state.user_id,
+                                    f"Fixed Expense: {expense['name']} ({st.session_state.selected_month_fixed})"
+                                ))
+                                expenses_removed.append(expense['name'])
+                                updates_made = True
+                            
+                            # Mark as updated if status changed or if we're just syncing
+                            if status_changed:
+                                updates_made = True
                         
                         conn.commit()
                         
@@ -308,9 +325,12 @@ def show_fixed_expenses_modal(cur, conn):
                                 msg_parts.append(f"Added: {', '.join(expenses_added)}")
                             if expenses_removed:
                                 msg_parts.append(f"Removed: {', '.join(expenses_removed)}")
-                            st.success(f"✅ Payments saved! {' | '.join(msg_parts)}")
+                            if msg_parts:
+                                st.success(f"✅ Payments saved! {' | '.join(msg_parts)}")
+                            else:
+                                st.success("✅ Payment statuses updated!")
                         else:
-                            st.info("ℹ️ No changes detected. All payments are already saved.")
+                            st.success("✅ All payments saved!")
                         
                         st.rerun()
                     except Exception as e:
