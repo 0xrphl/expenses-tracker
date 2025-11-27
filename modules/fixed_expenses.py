@@ -168,22 +168,21 @@ def show_fixed_expenses_modal(cur, conn):
                     col1, col2, col3, col4, col5, col6 = st.columns([1, 2, 2, 2, 2, 2])
                     
                     with col1:
-                        # Checkbox - use database value, but don't set in session state if already exists
+                        # Checkbox - always sync with database value on load
                         checkbox_key = f"paid_cb_{expense['id']}"
-                        # Only set session state if it doesn't exist or if database value changed
+                        # Initialize from database value
                         if checkbox_key not in st.session_state:
-                            st.session_state[checkbox_key] = expense['is_paid']
-                        elif st.session_state[checkbox_key] != expense['is_paid']:
-                            # Database value changed, update session state
-                            st.session_state[checkbox_key] = expense['is_paid']
+                            st.session_state[checkbox_key] = bool(expense['is_paid'])
                         
-                        # Checkbox - use session state value (which is synced with DB)
+                        # Checkbox - the widget will update session state when clicked
                         is_paid = st.checkbox(
                             "Paid",
-                            value=st.session_state[checkbox_key],
+                            value=bool(expense['is_paid']),  # Use database value directly
                             key=checkbox_key,
                             label_visibility="collapsed"
                         )
+                        # Update session state with checkbox value
+                        st.session_state[checkbox_key] = is_paid
                     
                     with col2:
                         st.write(f"**{expense['name']}**")
@@ -235,20 +234,23 @@ def show_fixed_expenses_modal(cur, conn):
                         for expense in fixed_expenses:
                             exp_id = expense['id']
                             
-                            # Get form values directly from session state (form widgets update session state)
+                            # Get form values from session state - these are set by the widgets
                             checkbox_key = f"paid_cb_{exp_id}"
                             amount_key = f"amt_{exp_id}"
                             wallet_key = f"wal_{exp_id}"
                             date_key = f"date_{exp_id}"
                             
-                            # Get current values from session state - these are updated by the form widgets
-                            is_paid = st.session_state.get(checkbox_key, expense['is_paid'])
-                            paid_amount = st.session_state.get(amount_key, float(expense['amount']))
+                            # Get current values from session state
+                            is_paid = bool(st.session_state.get(checkbox_key, expense['is_paid']))
+                            paid_amount = float(st.session_state.get(amount_key, expense['amount']))
                             wallet_source = st.session_state.get(wallet_key, "Rafael")
                             payment_date = st.session_state.get(date_key, date.today())
                             
-                            # Get original status from database
-                            was_paid = original_expenses[exp_id]['is_paid']
+                            # Get original status from database (convert to bool)
+                            was_paid = bool(original_expenses[exp_id]['is_paid'])
+                            
+                            # Debug: show what we're comparing
+                            st.write(f"DEBUG: {expense['name']} - was_paid: {was_paid}, is_paid: {is_paid}, checkbox_key: {checkbox_key}")
                             
                             # Always update the database with current checkbox state
                             cur.execute("""
@@ -264,15 +266,13 @@ def show_fixed_expenses_modal(cur, conn):
                             # If marked as paid and wasn't paid before, add to expenses
                             if is_paid and not was_paid:
                                 # Check if already added to expenses for this month
+                                expense_description = f"Fixed Expense: {expense['name']} ({st.session_state.selected_month_fixed})"
                                 cur.execute("""
                                     SELECT COUNT(*) as count
                                     FROM expenses
                                     WHERE user_id = %s 
                                     AND description = %s
-                                """, (
-                                    st.session_state.user_id,
-                                    f"Fixed Expense: {expense['name']} ({st.session_state.selected_month_fixed})"
-                                ))
+                                """, (st.session_state.user_id, expense_description))
                                 
                                 existing = cur.fetchone()['count']
                                 if existing == 0:
@@ -285,7 +285,7 @@ def show_fixed_expenses_modal(cur, conn):
                                         paid_amount,
                                         'USD',
                                         expense['category_id'],
-                                        f"Fixed Expense: {expense['name']} ({st.session_state.selected_month_fixed})",
+                                        expense_description,
                                         payment_date,
                                         wallet_source
                                     ))
@@ -293,15 +293,13 @@ def show_fixed_expenses_modal(cur, conn):
                             
                             # If unmarked as paid and was paid before, remove from expenses
                             elif not is_paid and was_paid:
+                                expense_description = f"Fixed Expense: {expense['name']} ({st.session_state.selected_month_fixed})"
                                 cur.execute("""
                                     DELETE FROM expenses
                                     WHERE user_id = %s 
                                     AND description = %s
                                     LIMIT 1
-                                """, (
-                                    st.session_state.user_id,
-                                    f"Fixed Expense: {expense['name']} ({st.session_state.selected_month_fixed})"
-                                ))
+                                """, (st.session_state.user_id, expense_description))
                                 expenses_removed.append(expense['name'])
                         
                         conn.commit()
@@ -318,7 +316,7 @@ def show_fixed_expenses_modal(cur, conn):
                         if msg_parts:
                             st.success(f"✅ Saved! {' | '.join(msg_parts)}")
                         else:
-                            st.success("✅ All payments saved!")
+                            st.warning("⚠️ No changes detected. Check if checkboxes are being updated.")
                         
                         st.rerun()
                     except Exception as e:
