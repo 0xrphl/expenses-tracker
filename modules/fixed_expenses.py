@@ -250,54 +250,47 @@ def show_fixed_expenses_modal(cur, conn):
                             # Get original status from database
                             was_paid = original_expenses[exp_id]['is_paid']
                             
-                            # Always update the database with current form values (even if unchanged)
-                            # This ensures the database reflects the current state
+                            # Track if status changed
+                            status_changed = (is_paid != was_paid)
+                            
+                            # Update fixed expense status in database
                             cur.execute("""
                                 UPDATE fixed_expenses 
                                 SET is_paid = %s 
                                 WHERE id = %s
                             """, (is_paid, exp_id))
                             
-                            # Track if status changed for expense addition/removal
-                            status_changed = (is_paid != was_paid)
-                            
                             # If marked as paid and wasn't paid before, add to expenses
                             if is_paid and not was_paid:
-                                # Update fixed expense status
+                                # Check if already added to expenses for this month
                                 cur.execute("""
-                                    UPDATE fixed_expenses 
-                                    SET is_paid = %s 
-                                    WHERE id = %s
-                                """, (is_paid, exp_id))
+                                    SELECT COUNT(*) as count
+                                    FROM expenses
+                                    WHERE user_id = %s 
+                                    AND description = %s
+                                """, (
+                                    st.session_state.user_id,
+                                    f"Fixed Expense: {expense['name']} ({st.session_state.selected_month_fixed})"
+                                ))
                                 
-                                # If marked as paid and wasn't paid before, add to expenses
-                                if is_paid and not was_paid:
-                                    # Check if already added to expenses for this month
+                                existing = cur.fetchone()['count']
+                                if existing == 0:
+                                    # Add to expenses with wallet source
                                     cur.execute("""
-                                        SELECT COUNT(*) as count
-                                        FROM expenses
-                                        WHERE user_id = %s 
-                                        AND description LIKE %s
-                                        AND description LIKE %s
-                                    """, (st.session_state.user_id, f"%{expense['name']}%", f"%{st.session_state.selected_month_fixed}%"))
-                                    
-                                    existing = cur.fetchone()['count']
-                                    if existing == 0:
-                                        # Add to expenses with wallet source
-                                        cur.execute("""
-                                            INSERT INTO expenses (user_id, amount, currency, category_id, description, date, payment_source)
-                                            VALUES (%s, %s, %s, %s, %s, %s, %s)
-                                        """, (
-                                            st.session_state.user_id,
-                                            paid_amount,
-                                            'USD',
-                                            expense['category_id'],
-                                            f"Fixed Expense: {expense['name']} ({st.session_state.selected_month_fixed})",
-                                            payment_date,
-                                            wallet_source
-                                        ))
-                                        expenses_added.append(expense['name'])
-                                        updates_made = True
+                                        INSERT INTO expenses (user_id, amount, currency, category_id, description, date, payment_source)
+                                        VALUES (%s, %s, %s, %s, %s, %s, %s)
+                                    """, (
+                                        st.session_state.user_id,
+                                        paid_amount,
+                                        'USD',
+                                        expense['category_id'],
+                                        f"Fixed Expense: {expense['name']} ({st.session_state.selected_month_fixed})",
+                                        payment_date,
+                                        wallet_source
+                                    ))
+                                    expenses_added.append(expense['name'])
+                                    updates_made = True
+                            
                             # If unmarked as paid and was paid before, remove from expenses
                             elif not is_paid and was_paid:
                                 cur.execute("""
@@ -312,7 +305,7 @@ def show_fixed_expenses_modal(cur, conn):
                                 expenses_removed.append(expense['name'])
                                 updates_made = True
                             
-                            # Mark as updated if status changed or if we're just syncing
+                            # Mark as updated if status changed
                             if status_changed:
                                 updates_made = True
                         
@@ -322,16 +315,17 @@ def show_fixed_expenses_modal(cur, conn):
                         if updates_made:
                             msg_parts = []
                             if expenses_added:
-                                msg_parts.append(f"Added: {', '.join(expenses_added)}")
+                                msg_parts.append(f"Added to expenses: {', '.join(expenses_added)}")
                             if expenses_removed:
-                                msg_parts.append(f"Removed: {', '.join(expenses_removed)}")
+                                msg_parts.append(f"Removed from expenses: {', '.join(expenses_removed)}")
                             if msg_parts:
                                 st.success(f"✅ Payments saved! {' | '.join(msg_parts)}")
                             else:
                                 st.success("✅ Payment statuses updated!")
                         else:
-                            st.success("✅ All payments saved!")
+                            st.info("ℹ️ No changes to save.")
                         
+                        # Use st.rerun() only once after commit
                         st.rerun()
                     except Exception as e:
                         st.error(f"Error saving payments: {e}")
