@@ -142,8 +142,8 @@ def show_fixed_expenses_modal(cur, conn):
             # Display expenses with checkbox list and payment forms
             st.markdown("#### Fixed Liabilities - Check when paid")
             
-            # Create a form for all expenses - clear on submit to prevent rerun loops
-            with st.form("fixed_expenses_payment_form", clear_on_submit=True):
+            # Create a form for all expenses
+            with st.form("fixed_expenses_payment_form", clear_on_submit=False):
                 # Header row
                 col_h1, col_h2, col_h3, col_h4, col_h5, col_h6 = st.columns([1, 2, 2, 2, 2, 2])
                 with col_h1:
@@ -228,9 +228,9 @@ def show_fixed_expenses_modal(cur, conn):
                 submitted = st.form_submit_button("💾 Save All Payments", use_container_width=True, type="primary")
                 if submitted:
                     try:
-                        updates_made = False
                         expenses_added = []
                         expenses_removed = []
+                        status_updates = []
                         
                         for expense in fixed_expenses:
                             exp_id = expense['id']
@@ -250,15 +250,16 @@ def show_fixed_expenses_modal(cur, conn):
                             # Get original status from database
                             was_paid = original_expenses[exp_id]['is_paid']
                             
-                            # Track if status changed
-                            status_changed = (is_paid != was_paid)
-                            
-                            # Update fixed expense status in database
+                            # Always update the database with current checkbox state
                             cur.execute("""
                                 UPDATE fixed_expenses 
                                 SET is_paid = %s 
                                 WHERE id = %s
                             """, (is_paid, exp_id))
+                            
+                            # Track status changes
+                            if is_paid != was_paid:
+                                status_updates.append(expense['name'])
                             
                             # If marked as paid and wasn't paid before, add to expenses
                             if is_paid and not was_paid:
@@ -289,7 +290,6 @@ def show_fixed_expenses_modal(cur, conn):
                                         wallet_source
                                     ))
                                     expenses_added.append(expense['name'])
-                                    updates_made = True
                             
                             # If unmarked as paid and was paid before, remove from expenses
                             elif not is_paid and was_paid:
@@ -303,29 +303,23 @@ def show_fixed_expenses_modal(cur, conn):
                                     f"Fixed Expense: {expense['name']} ({st.session_state.selected_month_fixed})"
                                 ))
                                 expenses_removed.append(expense['name'])
-                                updates_made = True
-                            
-                            # Mark as updated if status changed
-                            if status_changed:
-                                updates_made = True
                         
                         conn.commit()
                         
                         # Show success message
-                        if updates_made:
-                            msg_parts = []
-                            if expenses_added:
-                                msg_parts.append(f"Added to expenses: {', '.join(expenses_added)}")
-                            if expenses_removed:
-                                msg_parts.append(f"Removed from expenses: {', '.join(expenses_removed)}")
-                            if msg_parts:
-                                st.success(f"✅ Payments saved! {' | '.join(msg_parts)}")
-                            else:
-                                st.success("✅ Payment statuses updated!")
-                        else:
-                            st.info("ℹ️ No changes to save.")
+                        msg_parts = []
+                        if status_updates:
+                            msg_parts.append(f"Updated: {', '.join(status_updates)}")
+                        if expenses_added:
+                            msg_parts.append(f"Added to expenses: {', '.join(expenses_added)}")
+                        if expenses_removed:
+                            msg_parts.append(f"Removed from expenses: {', '.join(expenses_removed)}")
                         
-                        # Use st.rerun() only once after commit
+                        if msg_parts:
+                            st.success(f"✅ Saved! {' | '.join(msg_parts)}")
+                        else:
+                            st.success("✅ All payments saved!")
+                        
                         st.rerun()
                     except Exception as e:
                         st.error(f"Error saving payments: {e}")
