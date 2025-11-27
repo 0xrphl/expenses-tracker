@@ -6,11 +6,11 @@ from psycopg2.extras import RealDictCursor
 def show_fixed_expenses_modal(cur, conn):
     """Fixed expenses page content"""
     
-    # Month selector - default to December 2024
+    # Month selector - default to December 2025
     current_month = datetime.now().strftime('%Y-%m')
     # Initialize month selector in session state
     if 'selected_month_fixed' not in st.session_state:
-        st.session_state.selected_month_fixed = "2024-12"  # Default to December
+        st.session_state.selected_month_fixed = "2025-12"  # Default to December 2025
     
     # Quick month selector buttons - use on_change to avoid rerun lag
     st.markdown("**Select Month:**")
@@ -20,11 +20,11 @@ def show_fixed_expenses_modal(cur, conn):
         st.session_state.selected_month_fixed = month
     
     with col1:
-        st.button("December 2024", key="btn_dec_2024", use_container_width=True, 
-                 on_click=update_month, args=("2024-12",))
+        st.button("December 2025", key="btn_dec_2025", use_container_width=True, 
+                 on_click=update_month, args=("2025-12",))
     with col2:
-        st.button("January 2025", key="btn_jan_2025", use_container_width=True,
-                 on_click=update_month, args=("2025-01",))
+        st.button("January 2026", key="btn_jan_2026", use_container_width=True,
+                 on_click=update_month, args=("2026-01",))
     with col3:
         st.button("Current Month", key="btn_current", use_container_width=True,
                  on_click=update_month, args=(current_month,))
@@ -156,16 +156,20 @@ def show_fixed_expenses_modal(cur, conn):
                 for expense in fixed_expenses:
                     col1, col2, col3, col4, col5, col6 = st.columns([1, 2, 2, 2, 2, 2])
                     
-                    # Initialize session state for this expense if not exists - always sync with DB
-                    checkbox_key = f"paid_cb_{expense['id']}"
-                    # Always sync checkbox with database value
-                    st.session_state[checkbox_key] = expense['is_paid']
-                    
                     with col1:
-                        # Checkbox - always use database value
+                        # Checkbox - use database value, but don't set in session state if already exists
+                        checkbox_key = f"paid_cb_{expense['id']}"
+                        # Only set session state if it doesn't exist or if database value changed
+                        if checkbox_key not in st.session_state:
+                            st.session_state[checkbox_key] = expense['is_paid']
+                        elif st.session_state[checkbox_key] != expense['is_paid']:
+                            # Database value changed, update session state
+                            st.session_state[checkbox_key] = expense['is_paid']
+                        
+                        # Checkbox - use session state value (which is synced with DB)
                         is_paid = st.checkbox(
                             "",
-                            value=expense['is_paid'],
+                            value=st.session_state[checkbox_key],
                             key=checkbox_key,
                             label_visibility="collapsed"
                         )
