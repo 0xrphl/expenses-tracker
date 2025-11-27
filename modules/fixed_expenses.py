@@ -70,8 +70,6 @@ def show_fixed_expenses_modal(cur, conn):
                     ('Water', 26, categories.get('Utility Bills', other_category_id)),
                     ('Mortgage', 490, other_category_id),
                     ('Second Credit Line', 300, other_category_id),
-                    ('Credit 1', 15000, other_category_id),  # $15,000 credit
-                    ('Credit 2', 45000, other_category_id),  # $45,000 credit
                     ('Uber', 100, categories.get('Uber', other_category_id))
                 ]
                 
