@@ -12,6 +12,17 @@ def show_fixed_expenses_modal(cur, conn):
     if 'selected_month_fixed' not in st.session_state:
         st.session_state.selected_month_fixed = "2025-12"  # Default to December 2025
     
+    # Display current month being viewed
+    selected_month_display = st.session_state.selected_month_fixed
+    try:
+        month_date = datetime.strptime(selected_month_display, '%Y-%m')
+        month_name = month_date.strftime('%B %Y')
+        st.markdown(f"### 📅 Showing Fixed Expenses for **{month_name}**")
+    except:
+        st.markdown(f"### 📅 Showing Fixed Expenses for **{selected_month_display}**")
+    
+    st.markdown("---")
+    
     # Quick month selector buttons - use on_change to avoid rerun lag
     st.markdown("**Select Month:**")
     col1, col2, col3, col4 = st.columns(4)
