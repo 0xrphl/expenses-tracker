@@ -168,21 +168,22 @@ def show_fixed_expenses_modal(cur, conn):
                     col1, col2, col3, col4, col5, col6 = st.columns([1, 2, 2, 2, 2, 2])
                     
                     with col1:
-                        # Checkbox - always sync with database value on load
+                        # Checkbox - sync with database value
                         checkbox_key = f"paid_cb_{expense['id']}"
-                        # Initialize from database value
+                        # Initialize session state from database if not exists
                         if checkbox_key not in st.session_state:
                             st.session_state[checkbox_key] = bool(expense['is_paid'])
+                        # If database value changed (e.g., after save), update session state
+                        elif st.session_state[checkbox_key] != bool(expense['is_paid']):
+                            st.session_state[checkbox_key] = bool(expense['is_paid'])
                         
-                        # Checkbox - the widget will update session state when clicked
+                        # Checkbox - reads and updates session state automatically
                         is_paid = st.checkbox(
                             "Paid",
-                            value=bool(expense['is_paid']),  # Use database value directly
+                            value=st.session_state[checkbox_key],
                             key=checkbox_key,
                             label_visibility="collapsed"
                         )
-                        # Update session state with checkbox value
-                        st.session_state[checkbox_key] = is_paid
                     
                     with col2:
                         st.write(f"**{expense['name']}**")
