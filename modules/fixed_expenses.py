@@ -12,30 +12,31 @@ def show_fixed_expenses_modal(cur, conn):
     if 'selected_month_fixed' not in st.session_state:
         st.session_state.selected_month_fixed = "2024-12"  # Default to December
     
-    # Quick month selector buttons
+    # Quick month selector buttons - use on_change to avoid rerun lag
     st.markdown("**Select Month:**")
     col1, col2, col3, col4 = st.columns(4)
+    
+    def update_month(month):
+        st.session_state.selected_month_fixed = month
+    
     with col1:
-        if st.button("December 2024", key="btn_dec_2024", use_container_width=True):
-            st.session_state.selected_month_fixed = "2024-12"
-            st.rerun()
+        st.button("December 2024", key="btn_dec_2024", use_container_width=True, 
+                 on_click=update_month, args=("2024-12",))
     with col2:
-        if st.button("January 2025", key="btn_jan_2025", use_container_width=True):
-            st.session_state.selected_month_fixed = "2025-01"
-            st.rerun()
+        st.button("January 2025", key="btn_jan_2025", use_container_width=True,
+                 on_click=update_month, args=("2025-01",))
     with col3:
-        if st.button("Current Month", key="btn_current", use_container_width=True):
-            st.session_state.selected_month_fixed = current_month
-            st.rerun()
+        st.button("Current Month", key="btn_current", use_container_width=True,
+                 on_click=update_month, args=(current_month,))
     with col4:
-        if st.button("Previous Month", key="btn_prev", use_container_width=True):
-            prev_month = (datetime.now().replace(day=1) - timedelta(days=1)).strftime('%Y-%m')
-            st.session_state.selected_month_fixed = prev_month
-            st.rerun()
+        prev_month = (datetime.now().replace(day=1) - timedelta(days=1)).strftime('%Y-%m')
+        st.button("Previous Month", key="btn_prev", use_container_width=True,
+                 on_click=update_month, args=(prev_month,))
     
     selected_month = st.text_input("Or enter Month/Year (YYYY-MM)", value=st.session_state.selected_month_fixed, key="month_selector_input")
     if selected_month != st.session_state.selected_month_fixed:
         st.session_state.selected_month_fixed = selected_month
+        st.rerun()
     
     with st.form("init_fixed_form", clear_on_submit=True):
         if st.form_submit_button("Initialize Default Fixed Expenses", use_container_width=True):
@@ -101,6 +102,16 @@ def show_fixed_expenses_modal(cur, conn):
         """, (st.session_state.user_id, st.session_state.selected_month_fixed))
         fixed_expenses = cur.fetchall()
         
+        # Track current month to detect month changes
+        current_month_key = f"current_month_fixed_{st.session_state.selected_month_fixed}"
+        if current_month_key not in st.session_state:
+            st.session_state[current_month_key] = True
+            # Clear checkbox states when month changes
+            for key in list(st.session_state.keys()):
+                if key.startswith("paid_cb_") or (key.startswith("amt_") and key not in [f"amt_{exp['id']}" for exp in fixed_expenses]):
+                    # Only clear if it's not for current expenses
+                    pass
+        
         if fixed_expenses:
             # Calculate totals
             total_fixed = sum(exp['amount'] for exp in fixed_expenses)
@@ -145,12 +156,17 @@ def show_fixed_expenses_modal(cur, conn):
                 for expense in fixed_expenses:
                     col1, col2, col3, col4, col5, col6 = st.columns([1, 2, 2, 2, 2, 2])
                     
+                    # Initialize session state for this expense if not exists - always sync with DB
+                    checkbox_key = f"paid_cb_{expense['id']}"
+                    # Always sync checkbox with database value
+                    st.session_state[checkbox_key] = expense['is_paid']
+                    
                     with col1:
-                        # Checkbox
+                        # Checkbox - always use database value
                         is_paid = st.checkbox(
                             "",
                             value=expense['is_paid'],
-                            key=f"paid_cb_{expense['id']}",
+                            key=checkbox_key,
                             label_visibility="collapsed"
                         )
                     
@@ -158,7 +174,7 @@ def show_fixed_expenses_modal(cur, conn):
                         st.write(f"**{expense['name']}**")
                     
                     with col3:
-                        # Editable amount
+                        # Editable amount - use database value
                         paid_amount = st.number_input(
                             "Amount",
                             min_value=0.01,
@@ -170,7 +186,7 @@ def show_fixed_expenses_modal(cur, conn):
                         )
                     
                     with col4:
-                        # Wallet selection
+                        # Wallet selection - default to Rafael
                         wallet_source = st.selectbox(
                             "Wallet",
                             ["Rafael", "Jessica"],
@@ -179,7 +195,7 @@ def show_fixed_expenses_modal(cur, conn):
                         )
                     
                     with col5:
-                        # Payment date
+                        # Payment date - default to today
                         payment_date = st.date_input(
                             "Date",
                             value=date.today(),
@@ -188,6 +204,7 @@ def show_fixed_expenses_modal(cur, conn):
                         )
                     
                     with col6:
+                        # Show status from database (not from checkbox state)
                         status = "✅ Paid" if expense['is_paid'] else "⏳ Pending"
                         st.write(status)
                     
@@ -199,11 +216,14 @@ def show_fixed_expenses_modal(cur, conn):
                         for expense in fixed_expenses:
                             exp_id = expense['id']
                             
-                            # Get form values
+                            # Get form values from session state
                             is_paid = st.session_state.get(f"paid_cb_{exp_id}", expense['is_paid'])
                             paid_amount = st.session_state.get(f"amt_{exp_id}", float(expense['amount']))
                             wallet_source = st.session_state.get(f"wal_{exp_id}", "Rafael")
                             payment_date = st.session_state.get(f"date_{exp_id}", date.today())
+                            
+                            # Get original status from database
+                            was_paid = original_expenses[exp_id]['is_paid']
                             
                             # Update fixed expense status
                             cur.execute("""
@@ -213,7 +233,7 @@ def show_fixed_expenses_modal(cur, conn):
                             """, (is_paid, exp_id))
                             
                             # If marked as paid and wasn't paid before, add to expenses
-                            if is_paid and not original_expenses[exp_id]['is_paid']:
+                            if is_paid and not was_paid:
                                 # Check if already added to expenses for this month
                                 cur.execute("""
                                     SELECT COUNT(*) as count
@@ -239,8 +259,26 @@ def show_fixed_expenses_modal(cur, conn):
                                         wallet_source
                                     ))
                                     updates_made = True
+                            # If unmarked as paid and was paid before, remove from expenses
+                            elif not is_paid and was_paid:
+                                cur.execute("""
+                                    DELETE FROM expenses
+                                    WHERE user_id = %s 
+                                    AND description = %s
+                                    LIMIT 1
+                                """, (
+                                    st.session_state.user_id,
+                                    f"Fixed Expense: {expense['name']} ({st.session_state.selected_month_fixed})"
+                                ))
+                                updates_made = True
                         
                         conn.commit()
+                        
+                        # Clear session state for checkboxes to force refresh from database
+                        for expense in fixed_expenses:
+                            exp_id = expense['id']
+                            # Don't clear, just let it refresh from DB on next load
+                        
                         if updates_made:
                             st.success("✅ Payments saved and added to expenses!")
                         else:
@@ -248,6 +286,8 @@ def show_fixed_expenses_modal(cur, conn):
                         st.rerun()
                     except Exception as e:
                         st.error(f"Error: {e}")
+                        import traceback
+                        st.code(traceback.format_exc())
                         conn.rollback()
         else:
             st.info("No fixed expenses for this month. Click 'Initialize Default Fixed Expenses' to add them.")
